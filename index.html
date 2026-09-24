@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>職安現場巡檢 - 管理後台</title>
+    <title>職安現場巡檢 - 獨立管理後台</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
@@ -35,27 +35,16 @@
     <!-- 實體的 PDF 渲染容器 -->
     <div id="pdfExportContainer"></div>
 
-    <!-- 獨立後台登入區塊 -->
-    <div id="passwordSection" class="glass-panel w-full max-w-md rounded-3xl p-8 transform transition-all text-center mt-16 sm:mt-0">
-        <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" alt="Logo" class="h-16 mx-auto mb-4" crossorigin="anonymous">
-        <h1 class="text-2xl font-extrabold text-slate-800 mb-2">職安巡檢 - 專屬後台</h1>
-        <p class="text-sm text-gray-500 font-bold mb-8">System Integration Hub</p>
-        
-        <input type="password" id="adminPwd" placeholder="請輸入管理員密碼" class="w-full px-5 py-4 rounded-xl border-2 border-gray-200 outline-none text-lg text-center mb-6" onkeypress="if(event.key==='Enter') verifyAdmin()">
-        
-        <button onclick="verifyAdmin()" class="w-full bg-slate-700 hover:bg-slate-800 text-white font-bold py-4 rounded-xl shadow-lg text-xl transition active:scale-95">
-            登入管理系統
-        </button>
-    </div>
-
-    <!-- 後台報表下載區塊 -->
-    <div id="adminSection" class="glass-panel w-full max-w-4xl rounded-2xl p-5 sm:p-8 mt-4 sm:mt-0" style="display: none;">
+    <!-- 🚀 後台報表下載區塊 (已移除 display: none，直接顯示) -->
+    <div id="adminSection" class="glass-panel w-full max-w-4xl rounded-2xl p-5 sm:p-8 mt-4 sm:mt-0">
         <div class="flex justify-between items-center mb-4 border-b-2 border-gray-200 pb-3">
             <h2 class="text-xl sm:text-2xl font-extrabold text-gray-800 flex items-center gap-2">
                 <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" alt="Logo" class="h-6 sm:h-8" crossorigin="anonymous">
-                職安巡檢報表
+                職安巡檢管理後台
             </h2>
-            <button onclick="logoutAdmin()" class="bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 px-4 py-1.5 rounded-lg text-sm whitespace-nowrap active:scale-95">登出</button>
+            <div class="text-sm font-bold text-blue-800 bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm">
+                System Integration Hub
+            </div>
         </div>
 
         <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 mb-5 shadow-sm space-y-3">
@@ -95,33 +84,17 @@
         let calYear = new Date().getFullYear(); let calMonth = new Date().getMonth(); 
         let currentPdfBlob = null; let currentPdfFileName = '';
 
-        function switchView(view) {
-            document.getElementById('passwordSection').style.display = 'none';
-            document.getElementById('adminSection').style.display = 'none';
-            document.getElementById(view + 'Section').style.display = 'block';
-        }
+        // 🚀 網頁載入完成後，自動執行初始化 (取代原本的登入按鈕)
+        window.onload = function() {
+            setTodayDate(); 
+            fetchRecordedDatesAndRender();
+        };
 
         function setTodayDate() {
             const today = new Date(); const yyyy = today.getFullYear();
             const mm = String(today.getMonth() + 1).padStart(2, '0'); const dd = String(today.getDate()).padStart(2, '0');
             document.getElementById('reportDate').value = `${yyyy}-${mm}-${dd}`;
             calYear = today.getFullYear(); calMonth = today.getMonth();
-        }
-
-        function verifyAdmin() {
-            const pwd = document.getElementById('adminPwd').value;
-            if (pwd === "1234") { 
-                switchView('admin'); 
-                setTodayDate(); 
-                fetchRecordedDatesAndRender(); 
-            } else {
-                alert("密碼錯誤！");
-            }
-        }
-
-        function logoutAdmin() {
-            document.getElementById('adminPwd').value = '';
-            switchView('password');
         }
 
         function fetchWithRetry(url, retries = 2) {
