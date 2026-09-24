@@ -16,8 +16,8 @@
             background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(16px);
             border: 1px solid rgba(255,255,255,0.8); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
         }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         
+        /* 🚀 恢復最穩定的原生 PDF 容器與自動防切斷機制 */
         #pdfExportContainer { display: none; width: 800px; margin: 0 auto; padding: 0; background: white; text-align: left; }
         .avoid-break { page-break-inside: avoid !important; break-inside: avoid !important; display: block; }
         .html2pdf__page-break { page-break-before: always !important; height: 0 !important; margin: 0 !important; border: 0 !important; padding: 0 !important; }
@@ -25,15 +25,19 @@
 </head>
 <body id="mainBody" class="app-bg min-h-screen flex items-start sm:items-center justify-center p-3 sm:p-4 transition-all">
 
+    <!-- 全螢幕載入遮罩 -->
     <div id="loadingOverlay" class="fixed inset-0 bg-white z-[99999] hidden flex-col items-center justify-center">
         <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-600 mb-4"></div>
         <h2 class="text-2xl font-extrabold text-gray-800 tracking-wider">📄 報表精密繪製中</h2>
         <p class="text-gray-500 mt-2 font-bold">系統排版中，請勿關閉網頁...</p>
     </div>
 
+    <!-- 實體的 PDF 渲染容器 -->
     <div id="pdfExportContainer"></div>
 
+    <!-- 後台管理主畫面 -->
     <div id="adminSection" class="glass-panel w-full max-w-4xl rounded-2xl p-5 sm:p-8 mt-4 sm:mt-0">
+        <!-- 🚀 已刪除右上角文字，介面極致乾淨 -->
         <div class="flex items-center justify-center mb-6 border-b-2 border-gray-200 pb-4">
             <h2 class="text-2xl sm:text-3xl font-extrabold text-gray-800 flex items-center gap-3">
                 <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" alt="Logo" class="h-8 sm:h-10" crossorigin="anonymous">
@@ -75,10 +79,11 @@
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkVb8Gtg1IgGi-qP8A6HtClBzetZf2uXiqdKco11ueU_yqfQPRbuwhsNs1WKFWDZEH/exec'; 
         
         let questionData = []; 
-        let recordedDatesCache = {}; 
+        let recordedDatesCache = {}; // 記憶體快取
         let calYear = new Date().getFullYear(); let calMonth = new Date().getMonth(); 
         let currentPdfBlob = null; let currentPdfFileName = '';
 
+        // 免登入，一開網頁直接初始化
         window.onload = function() {
             setTodayDate(); 
             fetchRecordedDatesAndRender();
@@ -171,6 +176,9 @@
             }
         }
 
+        // ==========================================
+        // 🚀 PDF 恢復最完美穩定的原生 HTML 組裝架構
+        // ==========================================
         const PDF_HEADER_TEMPLATE = `
             <div style="display: flex; align-items: center; justify-content: center; border-bottom: 2px solid #e5e7eb; padding-bottom: 15px; margin-bottom: 25px;">
                 <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" style="height: 35px; margin-right: 15px;" crossorigin="anonymous">
@@ -206,51 +214,19 @@
                     const filteredQ = questionData.filter(q => !q.applicable || q.applicable === "通用" || q.applicable.includes(task));
                     let ans = {}, notes = {}; try { ans = JSON.parse(getVal(row, '檢查結果JSON') || '{}'); } catch(e){} try { notes = JSON.parse(getVal(row, '異常說明JSON') || '{}'); } catch(e){}
 
-                    // 🚀 獨立出「氣象與熱危害」區塊的渲染邏輯
-                    let weatherBlockWeb = ''; let weatherBlockPdf = '';
+                    let weatherHtmlWeb = ''; let weatherHtmlPdfInline = '';
                     if (notes['_weather']) {
                         try {
                             let w = JSON.parse(notes['_weather']);
                             let windText = `${w.wind} m/s`; let windStyle = "font-bold text-gray-800"; let pdfWindStyle = "font-weight: bold; color: #1f2937;";
                             if (w.wind >= 10) { windText = `${w.wind} m/s (⚠️ 達強風標準)`; windStyle = "font-extrabold text-red-600"; pdfWindStyle = "font-weight: bold; color: #dc2626;"; }
                             
-                            let heatWarningHtmlWeb = ""; let heatWarningHtmlPdf = "";
-                            if (w.heatIndex >= 54.4 || w.temp >= 34) {
-                                heatWarningHtmlWeb += `<div class="mt-3 pt-3 border-t border-blue-200">`;
-                                if (w.heatIndex >= 54.4) heatWarningHtmlWeb += `<p class="font-bold text-red-600 text-sm">⚠️ 現場熱危害風險等級達第四級時，於11時至14時高溫時段停止戶外高溫作業。</p>`;
-                                if (w.temp >= 34) heatWarningHtmlWeb += `<p class="font-bold text-red-600 text-sm mt-1">⚠️ 現場氣溫達攝氏34度時停止戶外高溫作業。</p>`;
-                                heatWarningHtmlWeb += `</div>`;
-                                
-                                if (w.heatIndex >= 54.4) heatWarningHtmlPdf += `<p style="font-size: 12px; font-weight: bold; color: #dc2626; margin: 6px 0 0 0;">⚠️ 熱危害風險等級達第四級，11時至14時停止戶外高溫作業。</p>`;
-                                if (w.temp >= 34) heatWarningHtmlPdf += `<p style="font-size: 12px; font-weight: bold; color: #dc2626; margin: 3px 0 0 0;">⚠️ 現場氣溫達攝氏34度時停止戶外高溫作業。</p>`;
-                            }
+                            let heatWarningHtmlPdf = "";
+                            if (w.heatIndex >= 54.4) heatWarningHtmlPdf += `<p style="font-size: 11px; font-weight: bold; color: #dc2626; margin: 4px 0 0 0;">⚠️ 熱危害風險等級達第四級，11時至14時停止戶外高溫作業。</p>`;
+                            if (w.temp >= 34) heatWarningHtmlPdf += `<p style="font-size: 11px; font-weight: bold; color: #dc2626; margin: 2px 0 0 0;">⚠️ 現場氣溫達攝氏34度時停止戶外高溫作業。</p>`;
 
-                            // Hex 顏色對應轉換，確保 PDF 樣式正確
-                            let heatColorHex = '#6b7280';
-                            if (w.heatColor.includes('green')) heatColorHex = '#16a34a';
-                            else if (w.heatColor.includes('yellow')) heatColorHex = '#ca8a04';
-                            else if (w.heatColor.includes('orange')) heatColorHex = '#f97316';
-                            else if (w.heatColor.includes('red')) heatColorHex = '#dc2626';
-
-                            weatherBlockWeb = `
-                                <div class="bg-blue-50/70 p-4 rounded-xl mb-4 border border-blue-200 shadow-sm">
-                                    <h4 class="font-extrabold text-blue-800 text-base mb-3 flex items-center gap-2">🌤️ 現場氣象與熱危害資訊</h4>
-                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-700">
-                                        <p>🌡️ 氣溫：<span class="font-bold">${w.temp}°C</span> / 濕度：<span class="font-bold">${w.hum}%</span></p>
-                                        <p>🔥 熱指數：<span class="${w.heatColor} font-extrabold text-base">${w.heatIndex} (${w.heatLevel})</span></p>
-                                        <p class="sm:col-span-2">💨 十分鐘平均風速：<span class="${windStyle}">${windText}</span></p>
-                                    </div>
-                                    ${heatWarningHtmlWeb}
-                                </div>`;
-
-                            weatherBlockPdf = `
-                                <div class="avoid-break" style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 15px; margin-bottom: 20px;">
-                                    <p style="font-size: 15px; font-weight: bold; color: #1e40af; margin: 0 0 10px 0;">🌤️ 現場氣象與熱危害資訊</p>
-                                    <p style="font-size: 14px; color: #374151; margin: 0 0 5px 0;">🌡️ 氣溫：<strong>${w.temp}°C</strong> ｜ 💧 濕度：<strong>${w.hum}%</strong></p>
-                                    <p style="font-size: 14px; color: #374151; margin: 0 0 5px 0;">🔥 熱指數：<strong style="color: ${heatColorHex};">${w.heatIndex} (${w.heatLevel})</strong></p>
-                                    <p style="font-size: 14px; color: #374151; margin: 0 0 0 0;">💨 十分鐘平均風速：<span style="${pdfWindStyle}">${windText}</span></p>
-                                    ${heatWarningHtmlPdf}
-                                </div>`;
+                            weatherHtmlWeb = `<div class="bg-blue-50 p-4 rounded-xl mt-3 border border-blue-200 text-sm shadow-sm"><p class="mb-1 text-gray-700">🌡️ 實際溫度：<span class="font-bold">${w.temp}°C</span> / 濕度：<span class="font-bold">${w.hum}%</span></p><p class="mb-1 text-gray-700">🔥 換算熱指數：<span class="${w.heatColor} font-extrabold text-base">${w.heatIndex} (${w.heatLevel})</span></p><p class="text-gray-700">💨 十分鐘平均風速：<span class="${windStyle}">${windText}</span></p></div>`;
+                            weatherHtmlPdfInline = `<p style="font-size: 11px; color: #6b7280; margin: 6px 0 0 0; padding-top: 6px; border-top: 1px solid #e5e7eb;">🌤️ 氣溫：${w.temp}°C | 💧 濕度：${w.hum}% | 🔥 熱指數：<span style="font-weight: bold;">${w.heatIndex} (${w.heatLevel})</span> | 💨 風速：<span style="${pdfWindStyle}">${windText}</span></p>${heatWarningHtmlPdf}`;
                         } catch(e) {}
                     }
 
@@ -268,17 +244,16 @@
                     }
 
                     let webMapHtml = '';
-                    if (lat && lon) { webMapHtml = `<div class="mb-4"><p class="text-sm font-bold text-gray-600 mb-2">📍 GPS 位置：${latLon} <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" target="_blank" class="text-blue-600 underline ml-2 text-xs bg-blue-50 px-2 py-1 rounded shadow-sm">🗺️ 開啟 Google 地圖</a></p><iframe class="w-full h-40 sm:h-48 rounded-lg border border-gray-300 shadow-sm" src="https://maps.google.com/maps?q=${lat},${lon}&z=16&output=embed" frameborder="0"></iframe></div>`; }
+                    if (lat && lon) { webMapHtml = `<p class="mt-2 text-sm font-bold text-blue-800 mb-1">📍 GPS 位置：${latLon} <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" target="_blank" class="text-blue-600 underline ml-2 text-xs bg-blue-50 px-2 py-1 rounded">🗺️ 開啟地圖</a></p><iframe class="w-full h-40 rounded-lg border border-gray-300 mt-2" src="https://maps.google.com/maps?q=${lat},${lon}&z=16&output=embed" frameborder="0"></iframe>${weatherHtmlWeb}`; }
 
                     // 網頁版 HTML 組裝
                     webHtml += `<div class="mb-8 border border-gray-300 rounded-2xl shadow-md bg-white p-5 sm:p-8">`;
                     webHtml += `<div class="mb-4 border-b-2 border-gray-200 pb-4"><p class="text-xl font-extrabold text-gray-800 mb-1">📅 巡檢日期：${date}</p><p class="text-sm text-gray-500 font-medium">⏱️ 提交時間：${getVal(row, '提交時間')}</p></div>`;
                     webHtml += `<div class="bg-gray-50 p-4 rounded-xl mb-4 border border-gray-200 text-base leading-relaxed"><p class="mb-1"><span class="font-bold text-blue-800">👤 巡檢員：</span>${getVal(row, '巡檢人員')}</p><p class="mb-1"><span class="font-bold text-blue-800">🔧 作業：</span>${task}</p><p><span class="font-bold text-blue-800">📍 區域：</span>${getVal(row, '航廈')||''} - ${getVal(row, '區域')||''} <span class="text-gray-600 text-sm">(${getVal(row, '詳細位置')||''})</span></p></div>`;
-                    if(weatherBlockWeb) webHtml += weatherBlockWeb;
-                    if(webMapHtml) webHtml += webMapHtml;
+                    webHtml += webMapHtml;
                     webHtml += `<h4 class="font-extrabold text-gray-800 text-lg border-b pb-1 mt-6 mb-4 flex items-center gap-2">📋 安全檢核項目</h4>`;
 
-                    // PDF 版 HTML 組裝
+                    // 🚀 PDF 版 HTML 組裝 (回歸不指定高度，採用 avoid-break 自動防切斷排版)
                     let currentPdfHtml = `<div style="width: 800px; padding: 40px; font-family: sans-serif; background-color: white; color: #1f2937; margin: 0 auto;">`;
                     currentPdfHtml += PDF_HEADER_TEMPLATE;
                     
@@ -292,22 +267,16 @@
                             <p style="margin: 0 0 5px 0; font-size: 15px;"><strong style="color: #1d4ed8;">🔧 作業：</strong><strong>${task}</strong></p>
                             <p style="margin: 0; font-size: 15px;"><strong style="color: #1d4ed8;">📍 區域：</strong><strong>${getVal(row, '航廈')||''} - ${getVal(row, '區域')||''}</strong> <span style="color: #6b7280; font-size: 13px;">(${getVal(row, '詳細位置')||''})</span></p>
                         </div>
-                    `;
-                    
-                    if (weatherBlockPdf) currentPdfHtml += weatherBlockPdf;
-                    
-                    if (lat && lon) {
-                        currentPdfHtml += `
                         <div class="avoid-break" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center;">
                             <div style="flex: 1;">
                                 <p style="margin: 0 0 5px 0; font-size: 15px; font-weight: bold;">📍 GPS 位置：${latLon}</p>
-                                <p style="margin: 0; font-size: 11px; color: #9ca3af;">掃描 QR Code 開啟地圖</p>
+                                <p style="margin: 0 0 10px 0; font-size: 11px; color: #9ca3af;">掃描 QR Code 開啟地圖</p>
+                                ${weatherHtmlPdfInline}
                             </div>
                             ${qrCodeImg ? `<img src="${qrCodeImg}" style="width: 70px; height: 70px; mix-blend-mode: multiply;" crossorigin="anonymous">` : ''}
-                        </div>`;
-                    }
-                    
-                    currentPdfHtml += `<h4 style="font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">📋 安全檢核項目明細：</h4>`;
+                        </div>
+                        <h4 style="font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">📋 安全檢核項目明細：</h4>
+                    `;
 
                     filteredQ.forEach((q) => {
                         const qNum = q.id.replace('q', ''); 
@@ -321,7 +290,7 @@
                         if (picUrls.length > 0) { webQBlock += `<div class="mt-3 flex flex-wrap gap-2">`; picUrls.forEach(u => { webQBlock += `<img src="${u}" class="h-32 object-contain rounded-lg border shadow-sm" crossorigin="anonymous">`; }); webQBlock += `</div>`; }
                         webQBlock += `</div>`; webHtml += webQBlock;
 
-                        // PDF 渲染
+                        // PDF 渲染 (使用 avoid-break)
                         let resColor = result === '異常' ? '#dc2626' : (result === '正常' ? '#16a34a' : '#6b7280');
                         let pdfQBlock = `
                             <div class="avoid-break" style="background-color: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
@@ -337,7 +306,7 @@
                         currentPdfHtml += pdfQBlock;
                     });
 
-                    let overallPics = getVal(row, '現場整體照片'); let sigPic = getVal(row, '簽名檔') || getVal(row, '簽名') || getVal(row, '巡檢員簽名') || getVal(row, '巡檢人員簽名確認');
+                    let overallPics = getVal(row, '現場整體照片'); let sigPic = getVal(row, '簽名檔') || getVal(row, '簽名') || getVal(row, '巡檢人員簽名確認');
                     
                     // Web Footer
                     let webFooter = `<div class="mt-8"><p class="font-extrabold text-lg mb-3">📸 現場整體照片:</p><div class="flex flex-wrap gap-3">`;
@@ -346,7 +315,7 @@
                     if (sigPic && sigPic.startsWith('http')) { webFooter += `<img src="${sigPic}" class="h-20 object-contain" crossorigin="anonymous">`; } else if (sigPic) { webFooter += `<p class="font-bold text-red-500">${sigPic}</p>`; } else { webFooter += `<p class="font-bold text-gray-400">未簽名</p>`; }
                     webFooter += `</div></div>`; webHtml += webFooter;
 
-                    // PDF Footer
+                    // PDF Footer (使用 avoid-break)
                     let pdfFooter = `
                         <div class="avoid-break" style="margin-top: 20px; border-top: 2px solid #e5e7eb; padding-top: 20px;">
                             <p style="font-size: 15px; font-weight: bold; margin: 0 0 10px 0;">📸 現場整體照片:</p>
@@ -356,7 +325,7 @@
                             <div style="text-align: right; padding-right: 20px;">
                                 <p style="font-size: 15px; font-weight: bold; margin: 0 0 10px 0;">巡檢人員簽名確認:</p>`;
                     if (sigPic && sigPic.startsWith('http')) { pdfFooter += `<img src="${sigPic}" style="height: 70px; object-fit: contain; margin-left: auto;" crossorigin="anonymous">`; } else if (sigPic) { pdfFooter += `<p style="font-size: 12px; font-weight: bold; color: #dc2626; margin: 0;">${sigPic}</p>`; } else { pdfFooter += `<p style="font-size: 12px; font-weight: bold; color: #9ca3af; margin: 0;">未簽名</p>`; }
-                    pdfFooter += `</div></div></div>`; 
+                    pdfFooter += `</div></div></div>`; // 結束整份 PDF
 
                     currentPdfHtml += pdfFooter;
                     
@@ -373,7 +342,7 @@
             });
         }
 
-        // 🚀 PDF 產出：回歸標準 normal flow，避免被手機系統惡意裁切
+        // 🚀 物理級 PDF 產出：回歸標準 normal flow 讓引擎自動對焦
         function downloadAdminReport() {
             try {
                 if (typeof html2pdf === 'undefined') { alert("⚠️ PDF 轉換引擎尚未載入！"); return; }
@@ -404,7 +373,7 @@
 
                 setTimeout(() => {
                     const opt = {
-                        margin: [10, 0, 10, 0], 
+                        margin: [10, 0, 10, 0], // 保留天地邊界
                         filename: `信實集團_職安巡檢日報表_${date}.pdf`, 
                         image: { type: 'jpeg', quality: 1.0 }, 
                         html2canvas: { scale: 2, useCORS: true, logging: false }, 
@@ -415,6 +384,7 @@
                     html2pdf().set(opt).from(pdfContainer).outputPdf('blob').then(function(pdfBlob) {
                         currentPdfBlob = pdfBlob; currentPdfFileName = `信實集團_職安巡檢日報表_${date}.pdf`;
                         
+                        // 畫完後藏回暗處，復原介面
                         pdfContainer.style.display = 'none';
                         mainBody.className = originalClasses;
                         adminSection.style.display = 'block';
@@ -432,7 +402,7 @@
                         loadingOverlay.classList.add('hidden'); loadingOverlay.classList.remove('flex');
                         alert("產出過程發生錯誤，請稍後重試。");
                     });
-                }, 1000); 
+                }, 1000); // 確保手機瀏覽器有足夠時間將隱藏元素畫出來
             } catch (e) { alert("執行發生例外錯誤：" + e.message); }
         }
 
