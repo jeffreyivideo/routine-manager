@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>職安現場巡檢 - 管理後台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        .app-bg {
+            background-color: #f0f4f8;
+            background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(219, 234, 254, 0.95) 100%), url('https://images.unsplash.com/photo-1436491865332-7a61a109cc05?q=80&w=2074&auto=format&fit=crop');
+            background-size: cover; background-position: center; background-attachment: fixed;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.8); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* PDF 報表渲染容器設定 */
+        #pdfExportContainer { display: none; width: 800px; margin: 0; padding: 0; background: white; text-align: left; }
+        .html2pdf__page-break { page-break-after: always !important; height: 0 !important; margin: 0 !important; border: 0 !important; padding: 0 !important; }
+    </style>
+</head>
+<body id="mainBody" class="app-bg min-h-screen flex items-start sm:items-center justify-center p-3 sm:p-4 transition-all">
+
+    <!-- 全螢幕載入遮罩 (高層級，用來掩護背後的實體渲染) -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-white z-[99999] hidden flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-600 mb-4"></div>
+        <h2 class="text-2xl font-extrabold text-gray-800 tracking-wider">📄 報表精密繪製中</h2>
+        <p class="text-gray-500 mt-2 font-bold">系統排版中，請勿關閉網頁...</p>
+    </div>
+
+    <!-- 實體的 PDF 渲染容器 -->
+    <div id="pdfExportContainer"></div>
+
+    <!-- 獨立後台登入區塊 -->
+    <div id="passwordSection" class="glass-panel w-full max-w-md rounded-3xl p-8 transform transition-all text-center mt-16 sm:mt-0">
+        <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" alt="Logo" class="h-16 mx-auto mb-4" crossorigin="anonymous">
+        <h1 class="text-2xl font-extrabold text-slate-800 mb-2">職安巡檢 - 專屬後台</h1>
+        <p class="text-sm text-gray-500 font-bold mb-8">System Integration Hub</p>
+        
+        <input type="password" id="adminPwd" placeholder="請輸入管理員密碼" class="w-full px-5 py-4 rounded-xl border-2 border-gray-200 outline-none text-lg text-center mb-6" onkeypress="if(event.key==='Enter') verifyAdmin()">
+        
+        <button onclick="verifyAdmin()" class="w-full bg-slate-700 hover:bg-slate-800 text-white font-bold py-4 rounded-xl shadow-lg text-xl transition active:scale-95">
+            登入管理系統
+        </button>
+    </div>
+
+    <!-- 後台報表下載區塊 -->
+    <div id="adminSection" class="glass-panel w-full max-w-4xl rounded-2xl p-5 sm:p-8 mt-4 sm:mt-0" style="display: none;">
+        <div class="flex justify-between items-center mb-4 border-b-2 border-gray-200 pb-3">
+            <h2 class="text-xl sm:text-2xl font-extrabold text-gray-800 flex items-center gap-2">
+                <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" alt="Logo" class="h-6 sm:h-8" crossorigin="anonymous">
+                職安巡檢報表
+            </h2>
+            <button onclick="logoutAdmin()" class="bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 px-4 py-1.5 rounded-lg text-sm whitespace-nowrap active:scale-95">登出</button>
+        </div>
+
+        <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 mb-5 shadow-sm space-y-3">
+            <div class="flex items-center justify-between font-extrabold text-gray-800 text-base sm:text-lg">
+                <button onclick="changeCalendarMonth(-1)" class="px-3 py-1.5 bg-white border border-gray-300 rounded-xl hover:bg-gray-100 shadow-sm active:scale-95">◀</button>
+                <span id="calendarMonthLabel" class="text-blue-900 tracking-wide"></span>
+                <button onclick="changeCalendarMonth(1)" class="px-3 py-1.5 bg-white border border-gray-300 rounded-xl hover:bg-gray-100 shadow-sm active:scale-95">▶</button>
+            </div>
+            <div class="grid grid-cols-7 text-center font-bold text-xs sm:text-sm text-gray-500 border-b pb-2">
+                <span class="text-red-500">日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span class="text-blue-500">六</span>
+            </div>
+            <div id="calendarGrid" class="grid grid-cols-7 gap-1 sm:gap-2 text-center text-sm font-bold"></div>
+            
+            <div class="flex flex-wrap items-center justify-between pt-2 border-t text-xs text-gray-600 gap-2">
+                <span class="flex items-center gap-1.5 font-bold"><span class="w-2.5 h-2.5 rounded-full bg-green-500 inline-block shadow-sm"></span> 🟢 綠點表示當天有巡檢紀錄</span>
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-gray-700">特定日期：</span>
+                    <input type="date" id="reportDate" onchange="onDateInputChange()" class="border px-2 py-1 rounded-lg bg-white font-bold text-gray-800 outline-none">
+                </div>
+            </div>
+        </div>
+        
+        <div id="reportContent" class="bg-white p-4 sm:p-6 rounded-xl border min-h-[200px] text-gray-700">
+            請選擇日期並點擊查詢。
+        </div>
+        
+        <button id="downloadPdfBtn" onclick="downloadAdminReport()" class="w-full mt-6 bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl hidden shadow-lg transition text-lg active:scale-95">
+            📤 匯出並分享 PDF 報表
+        </button>
+    </div>
+
+    <script>
+        // === ⚠️ 請務必替換為您專屬的 Google Apps Script 網址 ===
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkVb8Gtg1IgGi-qP8A6HtClBzetZf2uXiqdKco11ueU_yqfQPRbuwhsNs1WKFWDZEH/exec'; 
+        
+        let questionData = []; let recordedDatesList = [];
+        let calYear = new Date().getFullYear(); let calMonth = new Date().getMonth(); 
+        let currentPdfBlob = null; let currentPdfFileName = '';
+
+        function switchView(view) {
+            document.getElementById('passwordSection').style.display = 'none';
+            document.getElementById('adminSection').style.display = 'none';
+            document.getElementById(view + 'Section').style.display = 'block';
+        }
+
+        function setTodayDate() {
+            const today = new Date(); const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0'); const dd = String(today.getDate()).padStart(2, '0');
+            document.getElementById('reportDate').value = `${yyyy}-${mm}-${dd}`;
+            calYear = today.getFullYear(); calMonth = today.getMonth();
+        }
+
+        function verifyAdmin() {
+            const pwd = document.getElementById('adminPwd').value;
+            if (pwd === "1234") { 
+                switchView('admin'); 
+                setTodayDate(); 
+                fetchRecordedDatesAndRender(); 
+            } else {
+                alert("密碼錯誤！");
+            }
+        }
+
+        function logoutAdmin() {
+            document.getElementById('adminPwd').value = '';
+            switchView('password');
+        }
+
+        function fetchWithRetry(url, retries = 2) {
+            return fetch(url, { redirect: 'follow', cache: 'no-store' })
+                .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.text(); })
+                .catch(err => {
+                    if (retries > 0) return new Promise(resolve => setTimeout(resolve, 1000)).then(() => fetchWithRetry(url, retries - 1));
+                    throw err; 
+                });
+        }
+
+        function fetchRecordedDatesAndRender() {
+            const timestamp = new Date().getTime();
+            fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=getRecordedDates&t=${timestamp}`)
+                .then(text => JSON.parse(text))
+                .then(dates => { 
+                    recordedDatesList = Array.isArray(dates) ? dates : []; 
+                    renderCalendar(); 
+                    fetchReports(); 
+                }).catch(err => { 
+                    recordedDatesList = []; 
+                    renderCalendar(); 
+                    fetchReports(); 
+                });
+        }
+
+        function changeCalendarMonth(delta) { calMonth += delta; if (calMonth < 0) { calMonth = 11; calYear--; } else if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendar(); }
+        function onDateInputChange() { const val = document.getElementById('reportDate').value; if(val) { const parts = val.split('-'); calYear = parseInt(parts[0]); calMonth = parseInt(parts[1]) - 1; renderCalendar(); fetchReports(); } }
+        function selectDateFromCalendar(dateStr) { document.getElementById('reportDate').value = dateStr; renderCalendar(); fetchReports(); }
+
+        function renderCalendar() {
+            const label = document.getElementById('calendarMonthLabel'); label.textContent = `${calYear}年 ${String(calMonth + 1).padStart(2, '0')}月`;
+            const grid = document.getElementById('calendarGrid'); grid.innerHTML = '';
+            const selectedDate = document.getElementById('reportDate').value; const firstDayIndex = new Date(calYear, calMonth, 1).getDay(); const totalDays = new Date(calYear, calMonth + 1, 0).getDate();
+            for (let i = 0; i < firstDayIndex; i++) { grid.insertAdjacentHTML('beforeend', `<div></div>`); }
+            for (let day = 1; day <= totalDays; day++) {
+                const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const hasRecord = recordedDatesList.includes(dateStr); const isSelected = (dateStr === selectedDate);
+                let btnClass = "py-2 rounded-xl flex flex-col items-center justify-center relative cursor-pointer transition active:scale-95 border ";
+                if (isSelected) { btnClass += "bg-blue-600 text-white font-extrabold border-blue-600 shadow-md "; } else if (hasRecord) { btnClass += "bg-green-100 text-green-900 font-extrabold border-green-300 hover:bg-green-200 "; } else { btnClass += "bg-white text-gray-700 border-gray-100 hover:bg-gray-100 "; }
+                let dotHtml = hasRecord ? `<span class="w-2 h-2 rounded-full ${isSelected ? 'bg-white' : 'bg-green-600'} mt-0.5"></span>` : `<span class="w-2 h-2 opacity-0 mt-0.5"></span>`;
+                grid.insertAdjacentHTML('beforeend', `<div onclick="selectDateFromCalendar('${dateStr}')" class="${btnClass}"><span>${day}</span>${dotHtml}</div>`);
+            }
+        }
+
+        // ==========================================
+        // 🚀 PDF 表頭與接續頁模版
+        // ==========================================
+        const PDF_HEADER_TEMPLATE = `
+            <div class="flex items-center justify-center gap-3 pb-2 border-b border-gray-200 mb-3">
+                <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" class="h-6 object-contain" crossorigin="anonymous">
+                <h3 class="font-bold text-xl text-gray-800 tracking-wider">現場職安巡檢日報表</h3>
+            </div>
+        `;
+        
+        const PDF_HEADER_CONTINUED = `
+            <div class="flex items-center justify-center gap-3 pb-2 border-b border-gray-200 mb-3">
+                <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" class="h-6 object-contain" crossorigin="anonymous">
+                <h3 class="font-bold text-xl text-gray-800 tracking-wider">現場職安巡檢日報表</h3>
+            </div>
+            <h4 class="font-bold text-gray-800 text-sm mb-3 mt-3 flex items-center gap-2">📋 安全檢核項目明細 (續)：</h4>
+        `;
+
+        function fetchReports() {
+            const date = document.getElementById('reportDate').value; if (!date) return;
+            const reportContent = document.getElementById('reportContent'); reportContent.innerHTML = '🔄 資料同步與報表生成中，請稍候...';
+
+            const timestamp = new Date().getTime();
+            let loadQ = questionData.length === 0 ? fetchWithRetry(`${GOOGLE_SCRIPT_URL}?t=${timestamp}`).then(text => { questionData = JSON.parse(text); }) : Promise.resolve();
+
+            loadQ.then(() => fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=getReports&date=${date}&t=${timestamp}`))
+            .then(text => JSON.parse(text))
+            .then(async (data) => {
+                if (!Array.isArray(data) || data.length === 0) { 
+                    reportContent.innerHTML = `<div class="text-center py-8"><p class="text-gray-500 font-bold text-lg mb-2">📅 ${date} 尚無任何巡檢紀錄</p><p class="text-sm text-gray-400">系統中無當日資料。</p></div>`; 
+                    document.getElementById('downloadPdfBtn').classList.add('hidden'); return; 
+                }
+                
+                let webHtml = ''; let pdfHtmlPages = []; 
+                const getVal = (row, colName) => { for (let k in row) { if (k.replace(/\s/g, '') === colName) return row[k]; } return ''; };
+
+                for (let i = 0; i < data.length; i++) {
+                    const row = data[i]; const task = getVal(row, '作業項目');
+                    const filteredQ = questionData.filter(q => !q.applicable || q.applicable === "通用" || q.applicable.includes(task));
+                    let ans = {}, notes = {}; try { ans = JSON.parse(getVal(row, '檢查結果JSON') || '{}'); } catch(e){} try { notes = JSON.parse(getVal(row, '異常說明JSON') || '{}'); } catch(e){}
+
+                    let weatherHtmlWeb = ''; let weatherHtmlPdfInline = '';
+                    if (notes['_weather']) {
+                        try {
+                            let w = JSON.parse(notes['_weather']);
+                            let windText = `${w.wind} m/s`; let windStyle = "font-bold"; let pdfWindStyle = "font-bold";
+                            if (w.wind >= 10) { windText = `${w.wind} m/s (⚠️ 達強風標準)`; windStyle = "font-extrabold text-red-600"; pdfWindStyle = "font-extrabold text-red-600"; }
+                            
+                            let heatWarningHtmlWeb = ""; let heatWarningHtmlPdf = "";
+                            if (w.heatIndex >= 54.4 || w.temp >= 34) {
+                                heatWarningHtmlWeb += `<div class="mt-2 pt-2 border-t border-red-200">`;
+                                if (w.heatIndex >= 54.4) heatWarningHtmlWeb += `<p class="font-bold text-red-600 text-sm">⚠️ 現場熱危害風險等級達第四級時，於11時至14時高溫時段停止戶外高溫作業。</p>`;
+                                if (w.temp >= 34) heatWarningHtmlWeb += `<p class="font-bold text-red-600 text-sm">⚠️ 現場氣溫達攝氏34度時停止戶外高溫作業。</p>`;
+                                heatWarningHtmlWeb += `</div>`;
+                                
+                                if (w.heatIndex >= 54.4) heatWarningHtmlPdf += `<p class="text-[11px] font-bold text-red-600 mt-1">⚠️ 現場熱危害風險等級達第四級時，於11時至14時高溫時段停止戶外高溫作業。</p>`;
+                                if (w.temp >= 34) heatWarningHtmlPdf += `<p class="text-[11px] font-bold text-red-600 mt-0.5">⚠️ 現場氣溫達攝氏34度時停止戶外高溫作業。</p>`;
+                            }
+
+                            weatherHtmlWeb = `<div class="bg-blue-50 p-4 rounded-xl mt-3 border border-blue-200 text-sm shadow-sm"><div class="flex items-center gap-2 mb-2 border-b border-blue-200 pb-2"><h4 class="font-bold text-blue-800 text-base">🌤️ 現場氣象與熱危害資訊</h4></div><p class="mb-1 text-gray-700">🌡️ 實際溫度：<span class="font-bold">${w.temp}°C</span> / 濕度：<span class="font-bold">${w.hum}%</span></p><p class="mb-1 text-gray-700">🔥 換算熱指數：<span class="${w.heatColor} font-extrabold text-base">${w.heatIndex} (${w.heatLevel})</span></p><p class="text-gray-700">💨 十分鐘平均風速：<span class="${windStyle}">${windText}</span></p>${heatWarningHtmlWeb}</div>`;
+                            weatherHtmlPdfInline = `<p class="text-[11px] text-gray-600 mt-1.5 border-t border-gray-200 pt-1.5">🌤️ 氣溫：${w.temp}°C | 💧 濕度：${w.hum}% | 🔥 熱指數：<span class="${w.heatColor} font-bold">${w.heatIndex} (${w.heatLevel})</span> | 💨 十分鐘平均風速：<span class="${pdfWindStyle}">${windText}</span></p>${heatWarningHtmlPdf}`;
+                        } catch(e) {}
+                    }
+
+                    let gpsStr = getVal(row, 'GPS地圖') || getVal(row, 'GPS') || ''; let lat = "", lon = "", latLon = "";
+                    if(gpsStr.includes('query=')) { let match = gpsStr.match(/query=([^&"]+)/); if(match && match[1]) { latLon = match[1]; let parts = latLon.split(','); if(parts.length===2) { lat=parts[0].trim(); lon=parts[1].trim(); } } }
+                    else if (gpsStr.includes(',')) { latLon = gpsStr.trim(); let parts = latLon.split(','); if(parts.length===2) { lat=parts[0].trim(); lon=parts[1].trim(); } }
+                    
+                    let qrCodeImg = '';
+                    if (lat && lon) {
+                        try {
+                            const gmapUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+                            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(gmapUrl)}&margin=0`;
+                            const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 1500); 
+                            const resQr = await fetch(qrUrl, { signal: controller.signal }); clearTimeout(timeoutId);
+                            if(resQr.ok) { const blobQr = await resQr.blob(); qrCodeImg = await new Promise((resolve) => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result); reader.readAsDataURL(blobQr); }); }
+                        } catch(e) { console.warn("QR Error", e); }
+                    }
+
+                    let webMapHtml = '';
+                    if (lat && lon) { webMapHtml = `<p class="mt-2 text-sm font-bold text-blue-800 mb-1">📍 GPS 位置：${latLon} <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" target="_blank" class="text-blue-600 underline ml-2 text-xs bg-blue-50 px-2 py-1 rounded">🗺️ 開啟 Google 地圖</a></p><iframe class="w-full h-40 sm:h-48 rounded-lg border border-gray-300 mt-2 shadow-sm" src="https://maps.google.com/maps?q=${lat},${lon}&z=16&output=embed" frameborder="0"></iframe>${weatherHtmlWeb}`; }
+
+                    const webBasicInfo = `<div class="mb-4 border-b-2 border-gray-200 pb-4"><p class="text-lg sm:text-xl font-extrabold text-gray-800 mb-1">📅 巡檢日期：${date}</p><p class="text-sm text-gray-500 font-medium">⏱️ 提交時間：${getVal(row, '提交時間')}</p></div><div class="bg-gray-50 p-4 rounded-xl mb-4 border border-gray-200 text-base leading-relaxed"><p class="mb-1"><span class="font-bold text-blue-800">👤 巡檢員：</span>${getVal(row, '巡檢人員')}</p><p class="mb-1"><span class="font-bold text-blue-800">🔧 作業：</span>${task}</p><p><span class="font-bold text-blue-800">📍 區域：</span>${getVal(row, '航廈')||getVal(row, '大項區域')||''} - ${getVal(row, '區域')||getVal(row, '小項區域')||''} <br><span class="text-gray-600 text-sm">(${getVal(row, '詳細位置')||''})</span></p></div>`;
+
+                    webHtml += `<div class="mb-8 border border-gray-300 rounded-xl shadow-sm bg-white p-4 sm:p-6"><div class="flex items-center justify-center gap-4 pb-4 border-b border-gray-200 mb-6"><img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" class="h-8 object-contain" crossorigin="anonymous"><h3 class="font-bold text-2xl text-gray-800 tracking-wider">現場職安巡檢日報表</h3></div>${webBasicInfo}${webMapHtml}<h4 class="font-extrabold text-gray-800 text-lg border-b pb-1 mt-6 mb-4 flex items-center gap-2">📋 安全檢核項目</h4>`;
+
+                    const pdfBasicInfo = `
+                        <div class="mb-2">
+                            <p class="text-lg font-bold text-gray-800 mb-0.5 flex items-center gap-2">📅 巡檢日期：${date}</p>
+                            <p class="text-[11px] text-gray-500 font-medium flex items-center gap-1">⏱️ 提交時間：${getVal(row, '提交時間')}</p>
+                        </div>
+                        <div class="bg-gray-50/80 p-2.5 rounded-lg mb-2.5 border border-gray-100 text-[11px] leading-snug">
+                            <p class="mb-0.5"><span class="font-bold text-blue-700">👤 巡檢員：</span><span class="text-gray-800 font-bold">${getVal(row, '巡檢人員')}</span></p>
+                            <p class="mb-0.5"><span class="font-bold text-blue-700">🔧 作業：</span><span class="text-gray-800 font-bold">${task}</span></p>
+                            <p class="mb-0"><span class="font-bold text-blue-700">📍 區域：</span><span class="text-gray-800 font-bold">${getVal(row, '航廈')||getVal(row, '大項區域')||''} - ${getVal(row, '區域')||getVal(row, '小項區域')||''}</span> <span class="text-gray-500 text-[10px]">(${getVal(row, '詳細位置')||''})</span></p>
+                        </div>`;
+
+                    const pdfMapBlock = `
+                        <div class="mb-2.5 flex items-center justify-between p-2.5 bg-gray-50/80 rounded-lg border border-gray-100">
+                            <div>
+                                <p class="font-bold text-gray-800 text-xs mb-0.5">📍 GPS 位置：${latLon}</p>
+                                <p class="text-[9px] text-gray-400 leading-tight">請掃描右方 QR Code 使用手機開啟 Google 地圖。</p>
+                                ${weatherHtmlPdfInline}
+                            </div>
+                            ${qrCodeImg ? `<img src="${qrCodeImg}" class="w-12 h-12 object-contain mix-blend-multiply" />` : ''}
+                        </div>`;
+
+                    let currentPdfPageHtml = `<div style="width: 800px; height: 1131px; padding: 40px 50px; box-sizing: border-box; background: white; font-family: sans-serif; color: #1f2937; position: relative; margin: 0; overflow: hidden;">` + PDF_HEADER_TEMPLATE + pdfBasicInfo + pdfMapBlock + `<h4 style="font-size: 16px; font-weight: bold; margin-bottom: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 5px;">📋 安全檢核項目明細：</h4>`;
+                    
+                    let itemCount = 0; let pageCount = 1; let currentHeight = 240; let MAX_PAGE_HEIGHT = 1050; 
+
+                    filteredQ.forEach((q, index) => {
+                        const qNum = q.id.replace('q', ''); 
+                        let result = ans[q.id] || getVal(row, `Q${qNum}結果`) || '未檢測';
+                        let note = notes[q.id] || getVal(row, `Q${qNum}說明`);
+                        let pic = getVal(row, `Q${qNum}照片`);
+                        let picUrls = pic ? pic.split('\n').filter(u => u.startsWith('http')) : [];
+
+                        let webQBlock = `<div class="bg-blue-50/30 p-4 rounded-xl border border-gray-200 text-base mb-4"><p class="font-extrabold text-gray-900 text-lg mb-1"><span class="text-blue-600">[${q.category}]</span> ${q.item}</p><p class="text-gray-500 mb-3 text-sm border-l-2 border-blue-400 pl-2">${q.standard}</p><p class="text-base font-bold bg-white inline-block px-3 py-1 rounded border border-gray-200">檢查結果：<span class="${result==='異常'?'text-red-600':(result==='正常'?'text-green-600':'text-gray-500')}">${result}</span> ${note?` <span class="text-gray-600 text-sm font-normal ml-2">(說明：${note})</span>`:''}</p>`;
+                        if (picUrls.length > 0) {
+                            webQBlock += `<div class="mt-3"><p class="text-red-600 font-bold mb-2 text-sm">🚨 異常照片：</p><div class="flex flex-wrap gap-2">`;
+                            picUrls.forEach(u => { webQBlock += `<img src="${u}" class="h-40 object-contain rounded-lg border border-gray-300 shadow-sm" crossorigin="anonymous">`; });
+                            webQBlock += `</div></div>`;
+                        }
+                        webQBlock += `</div>`;
+                        webHtml += webQBlock; 
+
+                        let itemHeight = 65; if (note) itemHeight += 15; if (picUrls.length > 0) itemHeight += 75;
+
+                        // 🚀 換頁邏輯
+                        if ((pageCount === 1 && itemCount === 6) || (currentHeight + itemHeight > MAX_PAGE_HEIGHT)) {
+                            currentPdfPageHtml += `</div>`; 
+                            pdfHtmlPages.push(currentPdfPageHtml);
+                            currentPdfPageHtml = `<div style="width: 800px; height: 1131px; padding: 40px 50px; box-sizing: border-box; background: white; font-family: sans-serif; color: #1f2937; position: relative; margin: 0; overflow: hidden;">` + PDF_HEADER_CONTINUED;
+                            currentHeight = 90; itemCount = 0; pageCount++;
+                        }
+
+                        let resColor = result === '異常' ? 'text-red-600' : (result === '正常' ? 'text-green-600' : 'text-gray-500');
+                        let pdfQBlock = `
+                            <div class="bg-white p-2.5 rounded-lg border border-gray-100 mb-2">
+                                <p class="font-bold text-gray-800 text-[11px] mb-0.5">[${q.category}] ${q.item}</p>
+                                <p class="text-[9px] text-gray-400 mb-1.5 leading-tight">${q.standard}</p>
+                                <p class="text-[10px] font-bold text-gray-800">檢查結果：<span class="${resColor}">${result}</span> ${note?`<span class="text-gray-500 font-normal ml-2">(說明：${note})</span>`:''}</p>`;
+                        if (picUrls.length > 0) {
+                            pdfQBlock += `<div class="mt-1.5 pt-1.5 border-t border-gray-50"><div class="flex flex-wrap gap-2">`;
+                            picUrls.forEach(u => { pdfQBlock += `<img src="${u}" class="h-16 object-contain rounded border border-gray-200" crossorigin="anonymous">`; });
+                            pdfQBlock += `</div></div>`;
+                        }
+                        pdfQBlock += `</div>`;
+                        
+                        currentPdfPageHtml += pdfQBlock; currentHeight += itemHeight; itemCount++;
+                    });
+
+                    let overallPics = getVal(row, '現場整體照片'); let sigPic = getVal(row, '簽名檔') || getVal(row, '簽名') || getVal(row, '巡檢員簽名') || getVal(row, '巡檢人員簽名確認');
+                    
+                    let webFooterBlock = `<div class="mt-8"><p class="font-extrabold text-gray-800 text-lg mb-3">📸 現場整體照片:</p>`;
+                    if (overallPics) { webFooterBlock += `<div class="flex flex-wrap gap-3">`; overallPics.split('\n').forEach(url => { if(url.startsWith('http')) webFooterBlock += `<img src="${url}" class="h-32 w-32 object-cover rounded-xl shadow-sm border border-gray-300" crossorigin="anonymous">`; }); webFooterBlock += `</div>`; } else webFooterBlock += `<p class="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded inline-block">無</p>`;
+                    webFooterBlock += `</div><div class="border-t-2 border-gray-300 pt-5 mt-8 flex flex-col items-end gap-3"><p class="font-extrabold text-gray-800 text-lg">巡檢人員簽名確認:</p>`;
+                    if (sigPic && sigPic.startsWith('http')) { webFooterBlock += `<img src="${sigPic}" class="h-20 sm:h-24 object-contain" crossorigin="anonymous">`; } else if (sigPic) { webFooterBlock += `<p class="text-sm font-bold text-red-500">${sigPic}</p>`; } else { webFooterBlock += `<p class="text-sm font-bold text-gray-400">未簽名</p>`; }
+                    webFooterBlock += `</div>`; webHtml += webFooterBlock + `</div>`; 
+
+                    let footerPhotosHeight = 35; 
+                    if (overallPics) { let picCount = overallPics.split('\n').filter(u => u.startsWith('http')).length; footerPhotosHeight += Math.ceil(picCount / 5) * 80; } else { footerPhotosHeight += 20; }
+                    let signatureHeight = 85; 
+                    
+                    if (currentHeight + footerPhotosHeight + signatureHeight > MAX_PAGE_HEIGHT) {
+                        currentPdfPageHtml += `</div>`; pdfHtmlPages.push(currentPdfPageHtml);
+                        currentPdfPageHtml = `<div style="width: 800px; height: 1131px; padding: 40px 50px; box-sizing: border-box; background: white; font-family: sans-serif; color: #1f2937; position: relative; margin: 0; overflow: hidden;">` + PDF_HEADER_CONTINUED;
+                    }
+
+                    let pdfFooterBlock = `<div class="mt-4 border-t border-gray-200 pt-4">`;
+                    pdfFooterBlock += `<p class="font-bold text-gray-800 text-sm mb-2 flex items-center gap-2">📸 現場整體照片:</p>`;
+                    if (overallPics) {
+                        pdfFooterBlock += `<div class="flex flex-wrap gap-2 mb-4">`;
+                        overallPics.split('\n').forEach(url => { if(url.startsWith('http')) pdfFooterBlock += `<img src="${url}" class="h-24 w-24 object-cover rounded-lg border border-gray-200" crossorigin="anonymous">`; });
+                        pdfFooterBlock += `</div>`;
+                    } else { pdfFooterBlock += `<p class="text-[10px] text-gray-400 mb-4">無</p>`; }
+                    pdfFooterBlock += `<div class="flex flex-col items-end gap-1"><p class="font-bold text-gray-800 text-sm tracking-wider">巡檢人員簽名確認:</p>`;
+                    
+                    if (sigPic && sigPic.startsWith('http')) { pdfFooterBlock += `<img src="${sigPic}" class="h-16 object-contain" crossorigin="anonymous">`; } else if (sigPic) { pdfFooterBlock += `<p class="text-[10px] font-bold text-red-500">${sigPic}</p>`; } else { pdfFooterBlock += `<p class="text-[10px] font-bold text-gray-400">未簽名</p>`; }
+                    pdfFooterBlock += `</div></div></div>`;
+
+                    currentPdfPageHtml += pdfFooterBlock; currentPdfPageHtml += `</div>`; 
+                    pdfHtmlPages.push(currentPdfPageHtml); 
+                }
+
+                document.getElementById('reportContent').innerHTML = webHtml;
+                document.getElementById('pdfExportContainer').innerHTML = pdfHtmlPages.join('');
+                document.getElementById('downloadPdfBtn').classList.remove('hidden');
+            }).catch(err => { 
+                console.error(err);
+                document.getElementById('reportContent').innerHTML = `<p class="text-red-500 font-bold">⚠️ 連線或讀取失敗，請重新選擇日期或檢查網路。</p>`; 
+            });
+        }
+
+        // 🚀 Viewport Rendering 物理級防裁切技術 (保證不白屏)
+        function downloadAdminReport() {
+            try {
+                if (typeof html2pdf === 'undefined') { alert("⚠️ PDF 轉換引擎尚未載入！"); return; }
+                const btn = document.getElementById('downloadPdfBtn');
+                if (currentPdfBlob) { triggerShareOrDownload(); return; }
+
+                const date = document.getElementById('reportDate').value;
+                const pdfContainer = document.getElementById('pdfExportContainer');
+                const loadingOverlay = document.getElementById('loadingOverlay');
+                
+                // 顯示不透明的純白遮罩掩護
+                loadingOverlay.classList.remove('hidden');
+                loadingOverlay.classList.add('flex');
+                loadingOverlay.style.zIndex = '99999';
+                btn.innerHTML = '🔄 PDF 產生準備中...';
+
+                // 將畫布實體化並拉到視窗目前捲動位置之下 (物理對焦)
+                pdfContainer.style.display = 'block';
+                pdfContainer.style.position = 'absolute';
+                pdfContainer.style.top = window.scrollY + 'px'; 
+                pdfContainer.style.left = '0px';
+                pdfContainer.style.zIndex = '99998'; 
+
+                setTimeout(() => {
+                    const opt = {
+                        margin: 0, filename: `信實集團_職安巡檢日報表_${date}.pdf`, image: { type: 'jpeg', quality: 1.0 }, 
+                        html2canvas: { scale: 2, useCORS: true, logging: false }, 
+                        jsPDF: { unit: 'px', format: [800, 1131], orientation: 'portrait' }
+                    };
+                    
+                    html2pdf().set(opt).from(pdfContainer).outputPdf('blob').then(function(pdfBlob) {
+                        currentPdfBlob = pdfBlob; currentPdfFileName = `信實集團_職安巡檢日報表_${date}.pdf`;
+                        pdfContainer.style.display = 'none'; pdfContainer.style.left = '-10000px';
+                        loadingOverlay.classList.add('hidden'); loadingOverlay.classList.remove('flex');
+                        
+                        btn.innerHTML = '✅ 報表已就緒！點擊這裡 分享 / 下載';
+                        btn.className = "w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition text-lg active:scale-95 animate-pulse";
+                        triggerShareOrDownload();
+                    }).catch(err => {
+                        pdfContainer.style.display = 'none'; pdfContainer.style.left = '-10000px';
+                        loadingOverlay.classList.add('hidden'); loadingOverlay.classList.remove('flex');
+                        alert("產出過程發生錯誤，請稍後重試。");
+                    });
+                }, 800); 
+            } catch (e) { alert("執行發生例外錯誤：" + e.message); }
+        }
+
+        function triggerShareOrDownload() {
+            const file = new File([currentPdfBlob], currentPdfFileName, { type: 'application/pdf' });
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+            if (isMobile && navigator.canShare && navigator.canShare({ files: [file] })) {
+                navigator.share({ files: [file] }).catch(err => console.log('分享取消或失敗:', err));
+            } else {
+                const url = URL.createObjectURL(currentPdfBlob); const a = document.createElement('a'); a.href = url; a.download = currentPdfFileName; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 100);
+            }
+        }
+    </script>
+</body>
+</html>
