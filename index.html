@@ -18,14 +18,13 @@
         }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         
-        /* PDF 報表渲染容器設定 */
         #pdfExportContainer { display: none; width: 800px; margin: 0; padding: 0; background: white; text-align: left; }
         .html2pdf__page-break { page-break-after: always !important; height: 0 !important; margin: 0 !important; border: 0 !important; padding: 0 !important; }
     </style>
 </head>
 <body id="mainBody" class="app-bg min-h-screen flex items-start sm:items-center justify-center p-3 sm:p-4 transition-all">
 
-    <!-- 全螢幕載入遮罩 (高層級，用來掩護背後的實體渲染) -->
+    <!-- 全螢幕載入遮罩 -->
     <div id="loadingOverlay" class="fixed inset-0 bg-white z-[99999] hidden flex-col items-center justify-center">
         <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-600 mb-4"></div>
         <h2 class="text-2xl font-extrabold text-gray-800 tracking-wider">📄 報表精密繪製中</h2>
@@ -35,16 +34,14 @@
     <!-- 實體的 PDF 渲染容器 -->
     <div id="pdfExportContainer"></div>
 
-    <!-- 🚀 後台報表下載區塊 (已移除 display: none，直接顯示) -->
+    <!-- 後台報表下載區塊 -->
     <div id="adminSection" class="glass-panel w-full max-w-4xl rounded-2xl p-5 sm:p-8 mt-4 sm:mt-0">
+        <!-- 🚀 已刪除右上角的 System Integration Hub 標籤 -->
         <div class="flex justify-between items-center mb-4 border-b-2 border-gray-200 pb-3">
             <h2 class="text-xl sm:text-2xl font-extrabold text-gray-800 flex items-center gap-2">
                 <img src="https://lh3.googleusercontent.com/d/1EGg_mHTfjhqscarvitDCKKAqWN7eLFSl" alt="Logo" class="h-6 sm:h-8" crossorigin="anonymous">
                 職安巡檢管理後台
             </h2>
-            <div class="text-sm font-bold text-blue-800 bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 shadow-sm">
-                System Integration Hub
-            </div>
         </div>
 
         <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 mb-5 shadow-sm space-y-3">
@@ -80,11 +77,11 @@
         // === ⚠️ 請務必替換為您專屬的 Google Apps Script 網址 ===
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkVb8Gtg1IgGi-qP8A6HtClBzetZf2uXiqdKco11ueU_yqfQPRbuwhsNs1WKFWDZEH/exec'; 
         
-        let questionData = []; let recordedDatesList = [];
+        let questionData = []; 
+        let recordedDatesCache = {}; // 🚀 記憶體快取：避免重複向 GAS 請求，大幅加快日曆反應速度
         let calYear = new Date().getFullYear(); let calMonth = new Date().getMonth(); 
         let currentPdfBlob = null; let currentPdfFileName = '';
 
-        // 🚀 網頁載入完成後，自動執行初始化 (取代原本的登入按鈕)
         window.onload = function() {
             setTodayDate(); 
             fetchRecordedDatesAndRender();
@@ -106,35 +103,74 @@
                 });
         }
 
+        // 🚀 最佳化：加入快取機制，秒開日曆與綠點
         function fetchRecordedDatesAndRender() {
+            const cacheKey = `${calYear}-${calMonth}`;
+            if (recordedDatesCache[cacheKey]) {
+                renderCalendar(); 
+                fetchReports();
+                return;
+            }
+
             const timestamp = new Date().getTime();
             fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=getRecordedDates&t=${timestamp}`)
                 .then(text => JSON.parse(text))
                 .then(dates => { 
-                    recordedDatesList = Array.isArray(dates) ? dates : []; 
+                    recordedDatesCache[cacheKey] = Array.isArray(dates) ? dates : []; 
                     renderCalendar(); 
                     fetchReports(); 
                 }).catch(err => { 
-                    recordedDatesList = []; 
+                    recordedDatesCache[cacheKey] = []; 
                     renderCalendar(); 
                     fetchReports(); 
                 });
         }
 
-        function changeCalendarMonth(delta) { calMonth += delta; if (calMonth < 0) { calMonth = 11; calYear--; } else if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendar(); }
-        function onDateInputChange() { const val = document.getElementById('reportDate').value; if(val) { const parts = val.split('-'); calYear = parseInt(parts[0]); calMonth = parseInt(parts[1]) - 1; renderCalendar(); fetchReports(); } }
-        function selectDateFromCalendar(dateStr) { document.getElementById('reportDate').value = dateStr; renderCalendar(); fetchReports(); }
+        function changeCalendarMonth(delta) { 
+            calMonth += delta; 
+            if (calMonth < 0) { calMonth = 11; calYear--; } 
+            else if (calMonth > 11) { calMonth = 0; calYear++; } 
+            fetchRecordedDatesAndRender(); // 切換月份時重新檢查快取
+        }
+
+        function onDateInputChange() { 
+            const val = document.getElementById('reportDate').value; 
+            if(val) { 
+                const parts = val.split('-'); 
+                calYear = parseInt(parts[0]); 
+                calMonth = parseInt(parts[1]) - 1; 
+                fetchRecordedDatesAndRender(); 
+                fetchReports(); 
+            } 
+        }
+
+        function selectDateFromCalendar(dateStr) { 
+            document.getElementById('reportDate').value = dateStr; 
+            renderCalendar(); 
+            fetchReports(); 
+        }
 
         function renderCalendar() {
             const label = document.getElementById('calendarMonthLabel'); label.textContent = `${calYear}年 ${String(calMonth + 1).padStart(2, '0')}月`;
             const grid = document.getElementById('calendarGrid'); grid.innerHTML = '';
-            const selectedDate = document.getElementById('reportDate').value; const firstDayIndex = new Date(calYear, calMonth, 1).getDay(); const totalDays = new Date(calYear, calMonth + 1, 0).getDate();
+            const selectedDate = document.getElementById('reportDate').value; 
+            const firstDayIndex = new Date(calYear, calMonth, 1).getDay(); 
+            const totalDays = new Date(calYear, calMonth + 1, 0).getDate();
+            
+            const cacheKey = `${calYear}-${calMonth}`;
+            const currentMonthDates = recordedDatesCache[cacheKey] || [];
+
             for (let i = 0; i < firstDayIndex; i++) { grid.insertAdjacentHTML('beforeend', `<div></div>`); }
             for (let day = 1; day <= totalDays; day++) {
                 const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const hasRecord = recordedDatesList.includes(dateStr); const isSelected = (dateStr === selectedDate);
+                const hasRecord = currentMonthDates.includes(dateStr); 
+                const isSelected = (dateStr === selectedDate);
+                
                 let btnClass = "py-2 rounded-xl flex flex-col items-center justify-center relative cursor-pointer transition active:scale-95 border ";
-                if (isSelected) { btnClass += "bg-blue-600 text-white font-extrabold border-blue-600 shadow-md "; } else if (hasRecord) { btnClass += "bg-green-100 text-green-900 font-extrabold border-green-300 hover:bg-green-200 "; } else { btnClass += "bg-white text-gray-700 border-gray-100 hover:bg-gray-100 "; }
+                if (isSelected) { btnClass += "bg-blue-600 text-white font-extrabold border-blue-600 shadow-md "; } 
+                else if (hasRecord) { btnClass += "bg-green-100 text-green-900 font-extrabold border-green-300 hover:bg-green-200 "; } 
+                else { btnClass += "bg-white text-gray-700 border-gray-100 hover:bg-gray-100 "; }
+                
                 let dotHtml = hasRecord ? `<span class="w-2 h-2 rounded-full ${isSelected ? 'bg-white' : 'bg-green-600'} mt-0.5"></span>` : `<span class="w-2 h-2 opacity-0 mt-0.5"></span>`;
                 grid.insertAdjacentHTML('beforeend', `<div onclick="selectDateFromCalendar('${dateStr}')" class="${btnClass}"><span>${day}</span>${dotHtml}</div>`);
             }
@@ -269,7 +305,6 @@
 
                         let itemHeight = 65; if (note) itemHeight += 15; if (picUrls.length > 0) itemHeight += 75;
 
-                        // 🚀 換頁邏輯
                         if ((pageCount === 1 && itemCount === 6) || (currentHeight + itemHeight > MAX_PAGE_HEIGHT)) {
                             currentPdfPageHtml += `</div>`; 
                             pdfHtmlPages.push(currentPdfPageHtml);
@@ -331,11 +366,10 @@
                 document.getElementById('downloadPdfBtn').classList.remove('hidden');
             }).catch(err => { 
                 console.error(err);
-                document.getElementById('reportContent').innerHTML = `<p class="text-red-500 font-bold">⚠️ 連線或讀取失敗，請重新選擇日期或檢查網路。</p>`; 
+                reportContent.innerHTML = `<p class="text-red-500 font-bold">⚠️ 連線或讀取失敗，請重新選擇日期或檢查網路。</p>`; 
             });
         }
 
-        // 🚀 Viewport Rendering 物理級防裁切技術 (保證不白屏)
         function downloadAdminReport() {
             try {
                 if (typeof html2pdf === 'undefined') { alert("⚠️ PDF 轉換引擎尚未載入！"); return; }
@@ -346,13 +380,11 @@
                 const pdfContainer = document.getElementById('pdfExportContainer');
                 const loadingOverlay = document.getElementById('loadingOverlay');
                 
-                // 顯示不透明的純白遮罩掩護
                 loadingOverlay.classList.remove('hidden');
                 loadingOverlay.classList.add('flex');
                 loadingOverlay.style.zIndex = '99999';
                 btn.innerHTML = '🔄 PDF 產生準備中...';
 
-                // 將畫布實體化並拉到視窗目前捲動位置之下 (物理對焦)
                 pdfContainer.style.display = 'block';
                 pdfContainer.style.position = 'absolute';
                 pdfContainer.style.top = window.scrollY + 'px'; 
