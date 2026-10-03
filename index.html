@@ -34,11 +34,11 @@
         <p class="text-gray-500 mt-2 font-bold">系統排版中，請勿關閉網頁...</p>
     </div>
 
-    <!-- 🚀 全月熱危害統計面板 (Modal) -->
+    <!-- 🌡️ 全月熱危害統計面板 (Modal) -->
     <div id="weatherModal" class="fixed inset-0 bg-gray-900/60 z-[99990] hidden items-center justify-center p-4 backdrop-blur-sm">
         <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] modal-animate">
-            <div class="flex justify-between items-center p-5 border-b border-gray-200 bg-blue-50/50 rounded-t-2xl">
-                <h3 class="text-xl font-extrabold text-blue-900 flex items-center gap-2">
+            <div class="flex justify-between items-center p-5 border-b border-gray-200 bg-orange-50/80 rounded-t-2xl">
+                <h3 class="text-xl font-extrabold text-orange-900 flex items-center gap-2">
                     🌡️ 本月現場氣象與熱危害總覽
                 </h3>
                 <button onclick="closeWeatherModal()" class="text-gray-400 hover:text-red-500 font-bold text-2xl leading-none px-2 transition">&times;</button>
@@ -48,6 +48,24 @@
             </div>
             <div class="p-4 border-t border-gray-200 bg-white rounded-b-2xl flex justify-end">
                 <button onclick="closeWeatherModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-6 rounded-lg transition">關閉視窗</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🚨 全月異常與缺失追蹤面板 (Modal) -->
+    <div id="defectModal" class="fixed inset-0 bg-gray-900/60 z-[99990] hidden items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] modal-animate">
+            <div class="flex justify-between items-center p-5 border-b border-gray-200 bg-red-50/80 rounded-t-2xl">
+                <h3 class="text-xl font-extrabold text-red-900 flex items-center gap-2">
+                    ⚠️ 本月異常與缺失追蹤清單
+                </h3>
+                <button onclick="closeDefectModal()" class="text-gray-400 hover:text-red-500 font-bold text-2xl leading-none px-2 transition">&times;</button>
+            </div>
+            <div id="defectModalContent" class="p-5 overflow-y-auto flex-1 bg-gray-50">
+                <p class="text-center text-gray-500 font-bold">🔄 正在掃描本月巡檢異常缺失，請稍候...</p>
+            </div>
+            <div class="p-4 border-t border-gray-200 bg-white rounded-b-2xl flex justify-end">
+                <button onclick="closeDefectModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-6 rounded-lg transition">關閉視窗</button>
             </div>
         </div>
     </div>
@@ -63,10 +81,13 @@
             </h2>
         </div>
 
-        <!-- 🚀 新增：全月熱危害查詢按鈕 -->
-        <div class="mb-4">
+        <!-- 🚀 快捷功能按鈕區 -->
+        <div class="mb-6 flex flex-col gap-3">
             <button onclick="openWeatherModal()" class="w-full bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 font-bold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-2 active:scale-[0.98]">
                 🌡️ 檢視本月所有氣象與熱危害紀錄
+            </button>
+            <button onclick="openDefectModal()" class="w-full bg-red-50 hover:bg-red-100 border border-red-200 text-red-800 font-bold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-2 active:scale-[0.98]">
+                ⚠️ 檢視本月巡檢異常與缺失追蹤
             </button>
         </div>
 
@@ -100,12 +121,11 @@
     </div>
 
     <script>
-        // === ⚠️ 請務必替換為您專屬的 Google Apps Script 網址 ===
+        // === ⚠️️ 請務必替換為您專屬的 Google Apps Script 網址 ===
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkVb8Gtg1IgGi-qP8A6HtClBzetZf2uXiqdKco11ueU_yqfQPRbuwhsNs1WKFWDZEH/exec'; 
         
         let questionData = []; 
         let recordedDatesCache = {}; 
-        let monthlyDataCache = {}; // 用來存放已經載入過的全月完整資料
         let calYear = new Date().getFullYear(); let calMonth = new Date().getMonth(); 
         let currentPdfBlob = null; let currentPdfFileName = '';
 
@@ -201,7 +221,7 @@
             }
         }
 
-        // 🚀 新增：開啟熱危害全月總覽面板
+        // 🚀 開啟熱危害全月總覽面板
         function openWeatherModal() {
             const modal = document.getElementById('weatherModal');
             const content = document.getElementById('weatherModalContent');
@@ -217,33 +237,20 @@
                 return;
             }
 
-            // 為了不拖慢系統，並非一次抓取所有天的詳細報表，而是只在打開面板時依序抓取氣象資料
-            // 由於 GAS 沒有提供批量取得特定月份所有詳細資料的 API，我們只能使用 Promise.all 去獲取本月有記錄的每一天
             const timestamp = new Date().getTime();
             const fetchPromises = currentMonthDates.map(dateStr => 
                 fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=getReports&date=${dateStr}&t=${timestamp}`)
-                .then(res => JSON.parse(res))
-                .catch(() => []) // 容錯處理
+                .then(res => JSON.parse(res)).catch(() => []) 
             );
 
             Promise.all(fetchPromises).then(allResults => {
-                let weatherCardsHtml = '';
-                let hasWeatherInfo = false;
-                
-                // 將每天的結果攤平並反向排序 (最新的日期在上面)
-                const flatData = allResults.flat().sort((a, b) => {
-                    const dateA = new Date(a['填表時間'] || a['提交時間'] || '1970-01-01').getTime();
-                    const dateB = new Date(b['填表時間'] || b['提交時間'] || '1970-01-01').getTime();
-                    return dateB - dateA;
-                });
-
-                // 為了避免一天內有多筆紀錄顯示重複的氣象，我們用日期作去重 (只留該日第一筆含有氣象的紀錄)
+                let weatherCardsHtml = ''; let hasWeatherInfo = false;
+                const flatData = allResults.flat().sort((a, b) => new Date(b['填表時間'] || b['提交時間'] || '1970').getTime() - new Date(a['填表時間'] || a['提交時間'] || '1970').getTime());
                 const processedDates = new Set();
 
                 flatData.forEach(row => {
                     let notes = {}; 
                     try { 
-                        // 處理 GAS 回傳物件的 key 可能帶有空白的問題
                         let noteStr = '';
                         for (let k in row) { if (k.replace(/\s/g, '') === '異常說明JSON') { noteStr = row[k]; break; } }
                         notes = JSON.parse(noteStr || '{}'); 
@@ -254,18 +261,15 @@
                         try {
                             let submitTimeStr = '';
                             for (let k in row) { if (k.replace(/\s/g, '') === '提交時間') { submitTimeStr = row[k]; break; } }
-                            rowDateStr = submitTimeStr ? submitTimeStr.split(' ')[0] : '未知日期'; // 擷取日期部分
+                            rowDateStr = submitTimeStr ? submitTimeStr.split(' ')[0] : '未知日期';
                         } catch(e) {}
 
                         if (!processedDates.has(rowDateStr)) {
-                            processedDates.add(rowDateStr);
-                            hasWeatherInfo = true;
-
+                            processedDates.add(rowDateStr); hasWeatherInfo = true;
                             try {
                                 let w = JSON.parse(notes['_weather']);
                                 let windText = `${w.wind} m/s`; let windStyle = "font-bold text-gray-800"; 
                                 if (w.wind >= 10) { windText = `${w.wind} m/s (⚠️ 強風)`; windStyle = "font-extrabold text-red-600"; }
-                                
                                 let heatWarningHtml = "";
                                 if (w.heatIndex >= 54.4) heatWarningHtml += `<p class="font-bold text-red-600 text-xs mt-1">⚠️ 達第四級危險，高溫時段應停工</p>`;
                                 else if (w.temp >= 34) heatWarningHtml += `<p class="font-bold text-red-600 text-xs mt-1">⚠️ 氣溫達 34°C，高溫時段應停工</p>`;
@@ -283,28 +287,132 @@
                                             <p class="col-span-2">💨 風速：<span class="${windStyle}">${windText}</span></p>
                                         </div>
                                         ${heatWarningHtml}
-                                    </div>
-                                `;
+                                    </div>`;
                             } catch(e) {}
                         }
                     }
                 });
 
-                if (!hasWeatherInfo) {
-                    content.innerHTML = `<div class="text-center py-10"><p class="text-gray-500 font-extrabold text-xl mb-2">本月尚無任何氣象紀錄</p><p class="text-sm text-gray-400">只有在開啟 GPS 定位時，系統才會自動抓取氣象資料。</p></div>`;
-                } else {
-                    content.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${weatherCardsHtml}</div>`;
-                }
-
-            }).catch(err => {
-                content.innerHTML = `<div class="text-center py-10 text-red-500 font-bold">⚠️ 資料讀取失敗，請檢查網路連線。</div>`;
-            });
+                if (!hasWeatherInfo) { content.innerHTML = `<div class="text-center py-10"><p class="text-gray-500 font-extrabold text-xl mb-2">本月尚無任何氣象紀錄</p></div>`; } 
+                else { content.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">${weatherCardsHtml}</div>`; }
+            }).catch(err => { content.innerHTML = `<div class="text-center py-10 text-red-500 font-bold">⚠️ 資料讀取失敗，請檢查網路連線。</div>`; });
         }
 
         function closeWeatherModal() {
             const modal = document.getElementById('weatherModal');
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
+            modal.classList.add('hidden'); modal.classList.remove('flex');
+        }
+
+        // 🚨 新增：開啟本月缺失與異常追蹤面板
+        function openDefectModal() {
+            const modal = document.getElementById('defectModal');
+            const content = document.getElementById('defectModalContent');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            content.innerHTML = '<p class="text-center text-gray-500 font-bold py-10">🔄 正在掃描本月巡檢異常缺失，請稍候...</p>';
+
+            const cacheKey = `${calYear}-${calMonth}`;
+            const currentMonthDates = recordedDatesCache[cacheKey] || [];
+            
+            if (currentMonthDates.length === 0) {
+                content.innerHTML = `<div class="text-center py-10"><p class="text-gray-500 font-extrabold text-xl mb-2">📅 ${calYear}年 ${calMonth+1}月 尚無巡檢紀錄</p></div>`;
+                return;
+            }
+
+            const timestamp = new Date().getTime();
+            
+            // 確保先取得題庫，因為我們要比對異常項目的名稱
+            let loadQ = questionData.length === 0 ? fetchWithRetry(`${GOOGLE_SCRIPT_URL}?t=${timestamp}`).then(text => { questionData = JSON.parse(text); }) : Promise.resolve();
+
+            loadQ.then(() => {
+                const fetchPromises = currentMonthDates.map(dateStr => 
+                    fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=getReports&date=${dateStr}&t=${timestamp}`)
+                    .then(res => JSON.parse(res)).catch(() => []) 
+                );
+                return Promise.all(fetchPromises);
+            }).then(allResults => {
+                let defectCardsHtml = '';
+                let hasDefects = false;
+                
+                const flatData = allResults.flat().sort((a, b) => {
+                    const dateA = new Date(a['填表時間'] || a['提交時間'] || '1970-01-01').getTime();
+                    const dateB = new Date(b['填表時間'] || b['提交時間'] || '1970-01-01').getTime();
+                    return dateB - dateA;
+                });
+
+                const getVal = (row, colName) => { for (let k in row) { if (k.replace(/\s/g, '') === colName) return row[k]; } return ''; };
+
+                flatData.forEach(row => {
+                    const submitTime = getVal(row, '提交時間');
+                    const rowDateStr = submitTime ? submitTime.split(' ')[0] : '未知日期';
+                    const inspector = getVal(row, '巡檢人員');
+                    const location = `${getVal(row, '航廈')||''} - ${getVal(row, '區域')||''} (${getVal(row, '詳細位置')||''})`;
+                    const task = getVal(row, '作業項目');
+                    
+                    let ans = {}, notes = {}; 
+                    try { ans = JSON.parse(getVal(row, '檢查結果JSON') || '{}'); } catch(e){} 
+                    try { notes = JSON.parse(getVal(row, '異常說明JSON') || '{}'); } catch(e){}
+
+                    let currentRecordDefectsHtml = '';
+                    const filteredQ = questionData.filter(q => !q.applicable || q.applicable === "通用" || q.applicable.includes(task));
+                    
+                    filteredQ.forEach(q => {
+                        const qNum = q.id.replace('q', ''); 
+                        let result = ans[q.id] || getVal(row, `Q${qNum}結果`);
+                        if (result === '異常') {
+                            hasDefects = true;
+                            let note = notes[q.id] || getVal(row, `Q${qNum}說明`);
+                            let pic = getVal(row, `Q${qNum}照片`);
+                            let picUrls = pic ? pic.split('\n').filter(u => u.startsWith('http')) : [];
+                            
+                            currentRecordDefectsHtml += `
+                                <div class="mt-3 p-3 bg-red-50/50 border border-red-100 rounded-lg">
+                                    <p class="font-bold text-red-800 text-sm mb-1"><span class="text-red-500 mr-1">📍</span>[${q.category}] ${q.item}</p>
+                                    <p class="text-sm text-gray-700 pl-5 mb-2">✍️ 說明：${note || '<span class="text-gray-400">未填寫詳細說明</span>'}</p>
+                            `;
+                            if (picUrls.length > 0) {
+                                currentRecordDefectsHtml += `<div class="pl-5 flex flex-wrap gap-2">`;
+                                picUrls.forEach(u => { currentRecordDefectsHtml += `<img src="${u}" class="h-20 object-contain rounded border border-gray-200 shadow-sm" crossorigin="anonymous">`; });
+                                currentRecordDefectsHtml += `</div>`;
+                            }
+                            currentRecordDefectsHtml += `</div>`;
+                        }
+                    });
+
+                    if (currentRecordDefectsHtml) {
+                        defectCardsHtml += `
+                            <div class="bg-white border-l-4 border-red-500 rounded-xl p-4 shadow-sm mb-4">
+                                <div class="flex justify-between items-start border-b border-gray-100 pb-2 mb-2">
+                                    <div>
+                                        <span class="font-extrabold text-gray-900 text-lg">${rowDateStr}</span>
+                                        <span class="ml-2 text-xs font-bold px-2 py-1 rounded bg-blue-50 text-blue-800">${inspector}</span>
+                                    </div>
+                                    <span class="text-xs bg-red-100 text-red-800 font-bold px-2 py-1 rounded">異常通報</span>
+                                </div>
+                                <div class="text-sm text-gray-600 mb-2">
+                                    <p>🏢 <span class="font-bold text-gray-800">${location}</span></p>
+                                    <p>🔧 任務：${task}</p>
+                                </div>
+                                ${currentRecordDefectsHtml}
+                            </div>`;
+                    }
+                });
+
+                if (!hasDefects) {
+                    content.innerHTML = `<div class="text-center py-12"><p class="text-green-600 font-extrabold text-2xl mb-2">🎉 太棒了！</p><p class="text-gray-500 font-bold">本月目前為止，所有巡檢皆無異常缺失紀錄。</p></div>`;
+                } else {
+                    content.innerHTML = `<div class="p-2">${defectCardsHtml}</div>`;
+                }
+
+            }).catch(err => {
+                console.error(err);
+                content.innerHTML = `<div class="text-center py-10 text-red-500 font-bold">⚠️ 資料讀取失敗，請檢查網路連線。</div>`;
+            });
+        }
+
+        function closeDefectModal() {
+            const modal = document.getElementById('defectModal');
+            modal.classList.add('hidden'); modal.classList.remove('flex');
         }
 
         const PDF_HEADER_TEMPLATE = `
